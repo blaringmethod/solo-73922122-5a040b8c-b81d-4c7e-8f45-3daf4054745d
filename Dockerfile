@@ -12,7 +12,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
-EXPOSE 8000
+# 8000/tcp web UI + HTTP bridge, 25353/udp forwarder, 25354/udp test upstream
+EXPOSE 8000 25353/udp 25354/udp
 
-# 容器内必须绑定 0.0.0.0，宿主机端口映射才可达
+# Default command runs the web app; docker-compose overrides it per service.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

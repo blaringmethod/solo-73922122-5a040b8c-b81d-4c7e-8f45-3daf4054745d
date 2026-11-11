@@ -1,15 +1,73 @@
 services:
-  firewall-rule-diff:
+  # 本地实验上游：支持错误问题包、延迟、倒序回复等场景
+  test-upstream:
     build: .
-    image: firewall-rule-diff:1.0.0
-    container_name: firewall-rule-diff
+    image: dns-forwarder-demo:1.0.0
+    container_name: dns-test-upstream
+    command: ["python", "-m", "app.test_upstream"]
+    environment:
+      UPSTREAM_LISTEN_HOST: "0.0.0.0"
+      UPSTREAM_LISTEN_PORT: "25354"
+      UPSTREAM_TTL: "30"
+      UPSTREAM_DELAY_SECONDS: "0.6"
+      UPSTREAM_WRONGQ_DELAY: "0.05"
+      UPSTREAM_OOO_WINDOW: "0.25"
     ports:
-      # 默认仅绑定宿主机回环地址；如需对局域网开放，改为 "8000:8000"
-      - "127.0.0.1:8000:8000"
+      # 便于用 dig / 自己的客户端直接观察实验上游（可选）
+      - "127.0.0.1:25354:25354/udp"
+    restart: unless-stopped
+
+  # 单进程 UDP 转发器（随机唯一上游 ID、严格校验、2s SERVFAIL、最小 TTL 缓存）
+  dns-forwarder:
+    build: .
+    image: dns-forwarder-demo:1.0.0
+    container_name: dns-forwarder
+    command: ["python", "-m", "app.forwarder"]
+    environment:
+      DNS_LISTEN_HOST: "0.0.0.0"
+      DNS_LISTEN_PORT: "25353"
+      DNS_UPSTREAM_HOST: "test-upstream"
+      DNS_UPSTREAM_PORT: "25354"
+      DNS_TIMEOUT_SECONDS: "2.0"
+      DNS_CACHE_SIZE: "1024"
+    ports:
+      # 宿主机用 127.0.0.1:25353/udp 访问转发器（高位端口，避开常见 DNS/mDNS 占用）
+      - "127.0.0.1:25353:25353/udp"
+    depends_on:
+      - test-upstream
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health').status==200 else 1)"]
+      test: ["CMD", "python", "-m", "app.health_probe"]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  # 浏览器查询页 + HTTP -> 真实 UDP 查询桥
+  dns-web:
+    build: .
+    image: dns-forwarder-demo:1.0.0
+    container_name: dns-web
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      DNS_FORWARDER_HOST: "dns-forwarder"
+      DNS_FORWARDER_PORT: "25353"
+      DNS_QUERY_TIMEOUT_SECONDS: "3.0"
+      PUBLIC_DNS_HOST: "127.0.0.1"
+      PUBLIC_DNS_PORT: "25353"
+      DNS_UPSTREAM_LABEL: "test-upstream:25354（容器内实验上游）"
+    ports:
+      # 默认仅绑定宿主机回环地址；需要对局域网开放时改为 "8000:8000"
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      dns-forwarder:
+        condition: service_healthy
+      test-upstream:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=4).status==200 else 1)"]
+      interval: 20s
+      timeout: 6s
+      retries: 5
+      start_period: 15s

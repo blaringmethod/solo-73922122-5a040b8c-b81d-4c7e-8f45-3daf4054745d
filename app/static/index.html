@@ -3,135 +3,190 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>防火墙规则变更差分台</title>
+<title>DNS 转发服务 · 并发查询复现台</title>
 <style>
   :root {
-    --bg: #0f172a; --panel: #1e293b; --panel2: #273449; --line: #334155;
-    --text: #e2e8f0; --muted: #94a3b8; --accent: #38bdf8;
-    --allow: #16a34a; --allow-bg: #052e16; --deny: #dc2626; --deny-bg: #2a0a0a;
-    --warn: #f59e0b; --err-bg: #3f1414; --err-line: #b91c1c;
+    --bg: #0b1220; --panel: #121c2e; --panel2: #1a2740; --line: #2b3b58;
+    --text: #e2e8f0; --muted: #93a4bd; --accent: #38bdf8; --accent2: #818cf8;
+    --ok: #22c55e; --ok-bg: #052e16; --warn: #f59e0b; --warn-bg: #2a1c05;
+    --err: #ef4444; --err-bg: #2a0b0b; --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 14px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    margin: 0; background: radial-gradient(1100px 500px at 20% -10%, #152641 0%, var(--bg) 55%);
+    color: var(--text); font: 14px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    min-height: 100vh;
   }
-  header { padding: 20px 28px 12px; border-bottom: 1px solid var(--line); }
-  header h1 { margin: 0 0 6px; font-size: 20px; }
-  header p { margin: 0; color: var(--muted); font-size: 13px; }
-  main { padding: 20px 28px 60px; max-width: 1500px; margin: 0 auto; }
-  .toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  header { padding: 26px 30px 18px; border-bottom: 1px solid var(--line); }
+  .head-row { display: flex; gap: 24px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; max-width: 1400px; margin: 0 auto; }
+  header h1 { margin: 0 0 6px; font-size: 22px; letter-spacing: .3px; }
+  header p { margin: 0; color: var(--muted); font-size: 13px; max-width: 950px; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip { background: var(--panel2); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .chip b { color: var(--accent); font-family: var(--mono); font-weight: 600; }
+  main { max-width: 1400px; margin: 0 auto; padding: 22px 30px 70px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .card-head h2 { margin: 0; font-size: 16px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
   button {
     background: var(--panel2); color: var(--text); border: 1px solid var(--line);
-    border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 13px;
+    border-radius: 7px; padding: 7px 14px; cursor: pointer; font-size: 13px; transition: .15s;
   }
   button:hover { border-color: var(--accent); color: var(--accent); }
-  button.primary { background: #0369a1; border-color: #0ea5e9; color: #fff; }
+  button.primary { background: #0369a1; border-color: #0ea5e9; color: #fff; font-weight: 600; }
   button.primary:hover { background: #0284c7; color: #fff; }
-  .editors { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  @media (max-width: 1000px) { .editors { grid-template-columns: 1fr; } }
-  .editor-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-  .editor-card h2 { margin: 0; padding: 10px 14px; font-size: 14px; background: var(--panel2); border-bottom: 1px solid var(--line); }
-  textarea {
-    width: 100%; min-height: 320px; resize: vertical; border: 0; outline: none;
-    background: #0b1220; color: #dbeafe; font: 12px/1.55 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    padding: 12px 14px;
+  button.ghost { background: transparent; color: var(--muted); }
+  button.danger:hover { border-color: var(--err); color: var(--err); }
+  .presets { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px dashed var(--line); }
+  .presets .label { color: var(--muted); font-size: 12px; align-self: center; margin-right: 2px; }
+  .preset { font-size: 12px; padding: 5px 11px; border-radius: 999px; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+  tbody td { padding: 6px 8px; border-bottom: 1px solid #1c2a43; vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: 0; }
+  input[type=text], input[type=number] {
+    width: 100%; background: #0b1220; color: #dbeafe; border: 1px solid var(--line);
+    border-radius: 6px; padding: 7px 10px; font: 13px var(--mono); outline: none;
   }
-  .schema-help {
-    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-    padding: 12px 16px; margin: 16px 0; color: var(--muted); font-size: 12.5px;
-  }
-  .schema-help code { color: var(--accent); }
-  .schema-help pre {
-    background: #0b1220; border: 1px solid var(--line); border-radius: 6px;
-    padding: 10px 12px; overflow-x: auto; color: #cbd5e1; margin: 8px 0 0;
-  }
-  #errors { display: none; margin: 16px 0; border: 1px solid var(--err-line); background: var(--err-bg); border-radius: 10px; padding: 12px 16px; }
-  #errors.show { display: block; }
-  #errors h3 { margin: 0 0 8px; color: #fca5a5; font-size: 14px; }
-  #errors ul { margin: 0; padding-left: 18px; }
-  #errors li { margin: 4px 0; }
-  .loc { color: var(--warn); font-weight: 600; }
-  #results { margin-top: 22px; }
-  .section-head { display: flex; align-items: baseline; gap: 12px; margin: 22px 0 10px; }
-  .section-head h2 { margin: 0; font-size: 16px; }
-  .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
-  .badge.allow { background: var(--allow-bg); color: #4ade80; border: 1px solid var(--allow); }
-  .badge.deny { background: var(--deny-bg); color: #f87171; border: 1px solid var(--deny); }
-  .badge.default { background: #1f2937; color: #fbbf24; border: 1px solid var(--warn); }
-  .blocks { display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); gap: 14px; }
-  .block {
-    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-    padding: 14px 16px; border-left-width: 4px;
-  }
-  .block.newly-allowed { border-left-color: var(--allow); }
-  .block.newly-denied { border-left-color: var(--deny); }
-  .block h4 { margin: 0 0 10px; font-size: 13px; color: var(--muted); font-weight: 600; }
-  table.kv { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-  table.kv td { padding: 4px 6px; vertical-align: top; }
-  table.kv td:first-child { color: var(--muted); width: 96px; white-space: nowrap; }
-  table.kv td code { color: #bae6fd; }
-  .verdict-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
-  .verdict { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel2); }
-  .verdict .title { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
-  .verdict .rule { font-weight: 700; }
-  .arrow { text-align: center; color: var(--muted); font-size: 18px; margin-top: 6px; }
-  .empty { color: var(--muted); font-style: italic; padding: 8px 2px; }
-  .summary-bar { display: flex; gap: 18px; flex-wrap: wrap; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 18px; margin-bottom: 8px; font-size: 13px; }
-  .summary-bar b { color: var(--accent); }
-  .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
-  .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+  input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(56,189,248,.12); }
+  .row-index { color: var(--muted); font-family: var(--mono); font-size: 12px; width: 34px; }
+  .domain-cell { min-width: 240px; }
+  .id-cell { width: 180px; }
+  .op-cell { width: 70px; text-align: right; }
+  .hint { color: var(--muted); font-size: 12px; }
+  .mono { font-family: var(--mono); }
+  #summary { display: none; gap: 14px; flex-wrap: wrap; margin: 2px 0 16px; padding: 10px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; font-size: 13px; }
+  #summary.show { display: flex; }
+  #summary b { color: var(--accent); }
+  #results { display: grid; grid-template-columns: repeat(auto-fill, minmax(390px, 1fr)); gap: 14px; }
+  .result { background: var(--panel); border: 1px solid var(--line); border-radius: 11px; padding: 13px 15px; border-left: 4px solid var(--line); }
+  .result.ok { border-left-color: var(--ok); }
+  .result.servfail { border-left-color: var(--warn); }
+  .result.timeout { border-left-color: var(--warn); }
+  .result.error { border-left-color: var(--err); }
+  .result-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+  .result-title { font-family: var(--mono); font-size: 13.5px; font-weight: 700; word-break: break-all; }
+  .result-sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .badge { display: inline-block; border-radius: 999px; padding: 2px 10px; font-size: 11.5px; font-weight: 700; white-space: nowrap; }
+  .badge.ok { color: #4ade80; background: var(--ok-bg); border: 1px solid var(--ok); }
+  .badge.servfail { color: #fbbf24; background: var(--warn-bg); border: 1px solid var(--warn); }
+  .badge.timeout { color: #fbbf24; background: var(--warn-bg); border: 1px solid var(--warn); }
+  .badge.error { color: #f87171; background: var(--err-bg); border: 1px solid var(--err); }
+  .metrics { display: flex; gap: 16px; flex-wrap: wrap; margin: 10px 0 8px; font-size: 12px; color: var(--muted); }
+  .metrics span b { color: var(--text); font-family: var(--mono); font-weight: 600; }
+  .answers { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; }
+  .answer { display: flex; gap: 10px; align-items: baseline; background: #0b1220; border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px; font-family: var(--mono); font-size: 12.5px; }
+  .answer .atype { color: var(--accent2); font-weight: 700; }
+  .answer .adata { color: #bae6fd; font-weight: 700; }
+  .answer .attl { color: var(--warn); }
+  .answer .aname { color: var(--muted); margin-left: auto; font-size: 11.5px; }
+  .no-answer { color: var(--muted); font-style: italic; font-size: 12.5px; padding: 4px 2px; }
+  .err-text { color: #f87171; font-size: 12.5px; margin-top: 6px; word-break: break-word; }
+  .flags { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; }
+  .flag { font-family: var(--mono); font-size: 10.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
+  .flag.on { color: var(--accent); border-color: #1e5f7a; background: #0a2430; }
+  details { margin-top: 9px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 11.5px; }
+  details pre { background: #08101d; border: 1px solid var(--line); border-radius: 7px; padding: 9px 11px; overflow-x: auto; font: 11px/1.5 var(--mono); color: #cbd5e1; margin: 8px 0 0; }
+  .placeholder { border-style: dashed; opacity: .7; }
+  .explain { color: var(--muted); font-size: 12.5px; }
+  .explain h3 { color: var(--text); font-size: 14px; margin: 0 0 8px; }
+  .explain ul { margin: 6px 0 0; padding-left: 20px; }
+  .explain li { margin: 5px 0; }
+  .explain code { color: var(--accent); font-family: var(--mono); font-size: 12px; }
+  #toast { position: fixed; right: 20px; bottom: 20px; background: #1e293b; border: 1px solid var(--line); border-radius: 9px; padding: 10px 16px; font-size: 13px; opacity: 0; transform: translateY(8px); transition: .2s; pointer-events: none; }
+  #toast.show { opacity: 1; transform: translateY(0); }
 </style>
 </head>
 <body>
 <header>
-  <h1>防火墙规则变更差分台（IPv4 / TCP，首条匹配，默认拒绝）</h1>
-  <p>粘贴旧、新两份有序 JSON 规则（各 ≤ 20 条），系统用边界切分精确枚举整个流量空间，输出全部且互不重叠的新增放行 / 新增阻断区域，不做抽样。</p>
+  <div class="head-row">
+    <div>
+      <h1>DNS 转发服务 · 并发查询复现台</h1>
+      <p>从浏览器并发发起真实 UDP DNS 查询（A / IN，单问题，无 EDNS），指定域名与客户端查询 ID；
+         观察每个客户端的答案、RCODE 与耗时，复现同 ID 冲突、倒序应答、错误问题包、超时与缓存 TTL。</p>
+    </div>
+    <div class="chips">
+      <span class="chip">转发器 <b id="cfg-forwarder">…</b></span>
+      <span class="chip">上游 <b id="cfg-upstream">…</b></span>
+      <span class="chip">超时 <b id="cfg-timeout">…</b></span>
+      <span class="chip">协议 <b>A / IN · 单问题 · 无 EDNS</b></span>
+    </div>
+  </div>
 </header>
 
 <main>
-  <div class="toolbar">
-    <button class="primary" id="btn-analyze" type="button">分析变更</button>
-    <button id="btn-example" type="button">载入重叠规则示例</button>
-    <button id="btn-clear" type="button">清空输入与结果</button>
-  </div>
-
-  <div class="editors">
-    <div class="editor-card">
-      <h2>旧规则集（变更前）</h2>
-      <textarea id="old-rules" spellcheck="false" placeholder="在此粘贴旧 JSON 规则数组…"></textarea>
+  <section class="card">
+    <div class="card-head">
+      <h2>并发 UDP 查询</h2>
+      <div class="actions">
+        <button class="primary" id="btn-run" type="button">并发查询</button>
+        <button id="btn-add" type="button">添加一行</button>
+        <button class="ghost" id="btn-clear" type="button">清空结果</button>
+        <button class="ghost" id="btn-ready" type="button">检查链路</button>
+      </div>
     </div>
-    <div class="editor-card">
-      <h2>新规则集（变更后）</h2>
-      <textarea id="new-rules" spellcheck="false" placeholder="在此粘贴新 JSON 规则数组…"></textarea>
+
+    <div class="presets">
+      <span class="label">场景预设：</span>
+      <button class="preset" data-preset="same-id" type="button">同 ID 并发</button>
+      <button class="preset" data-preset="ooo" type="button">倒序应答</button>
+      <button class="preset" data-preset="wrongq" type="button">错误问题包</button>
+      <button class="preset" data-preset="wrongsrc" type="button">错误来源包</button>
+      <button class="preset" data-preset="delay" type="button">延迟应答</button>
+      <button class="preset" data-preset="drop" type="button">无应答超时</button>
+      <button class="preset" data-preset="cache" type="button">缓存 TTL</button>
+      <button class="preset" data-preset="normal" type="button">普通查询</button>
     </div>
-  </div>
 
-  <div class="schema-help">
-    <strong>规则格式</strong>：数组，每条规则为对象，字段
-    <code>id</code>（整数或非空字符串，同一份内唯一）、
-    <code>source</code> 与 <code>destination</code>（严格 IPv4 CIDR，主机位须为 0，如 <code>10.0.0.0/24</code>，全网用 <code>0.0.0.0/0</code>，单机用 <code>/32</code>）、
-    <code>portRange</code>（目的端口闭区间 <code>[下界, 上界]</code>，0-65535 整数）、
-    <code>action</code>（小写 <code>allow</code> 或 <code>deny</code>）。匹配按数组顺序，首条命中生效；全部未命中即默认拒绝。
-    <pre>[
-  {
-    "id": 1,
-    "source": "10.0.0.0/8",
-    "destination": "172.16.0.0/12",
-    "portRange": [80, 443],
-    "action": "allow"
-  }
-]</pre>
-  </div>
+    <table>
+      <thead>
+        <tr><th>#</th><th>域名（支持 .test 实验后缀）</th><th>客户端查询 ID（0-65535，可写 0x 前缀）</th><th></th></tr>
+      </thead>
+      <tbody id="rows">
+        <tr data-row-id="0">
+          <td class="row-index">1</td>
+          <td class="domain-cell"><input type="text" class="qname" spellcheck="false"
+              placeholder="例如 www.example.test" value="www.example.test"></td>
+          <td class="id-cell"><input type="text" class="qid" spellcheck="false"
+              placeholder="0-65535 或 0x1234" value="4660"></td>
+          <td class="op-cell"><button class="ghost danger btn-remove" type="button">删除</button></td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="hint">每行会各自打开一个独立的 UDP 客户端套接字（独立源端口）。即使多行使用完全相同的 ID，
+      转发器也必须按“上游随机唯一 ID + 待处理客户端端点”分别投递，不会串答。</p>
+  </section>
 
-  <div id="errors" role="alert"></div>
-  <div id="results"></div>
+  <div id="summary"></div>
+  <section id="results"></section>
+
+  <section class="card explain">
+    <h3>如何观察这些保证</h3>
+    <ul>
+      <li><b>同 ID 并发</b>：所有行使用相同 ID、不同域名。每个结果卡片都应显示自己域名的答案
+          （实验上游按域名哈希返回不同的 <code>198.51.100.x</code>）。</li>
+      <li><b>错误问题包 / 错误来源包 / QR=0</b>：上游先发一个伪造包再发正确应答；页面只应显示正确 IP，
+          且后续查询不会命中被污染的缓存。</li>
+      <li><b>倒序应答</b>：<code>ooo-*</code> 域名让上游把并发查询攒起来，按到达的相反顺序回复；
+          每个卡片仍须拿到自己的答案。</li>
+      <li><b>无应答超时</b>：<code>drop-*</code> 域名让上游不回复；约 2 秒后应看到 <code>SERVFAIL</code>。</li>
+      <li><b>缓存 TTL</b>：先用 <code>ttl5-cache.example.test</code> 查询一次，再点一次“并发查询”（可换 ID）。
+          第二次不访问上游，ID 恢复为本次客户端 ID，TTL 按已过秒数扣减；多次命中不会延长总寿命。</li>
+      <li>页面调用 <code>POST /api/query</code>，后端为每个请求新建 UDP 套接字并发往转发器；
+          转发器再以随机唯一上游 ID 访问上游。</li>
+    </ul>
+  </section>
 </main>
+
+<div id="toast"></div>
 
 <script>
 "use strict";
-
 const $ = (id) => document.getElementById(id);
+const QID_MAX = 65535;
+let nextRowSeq = 1;
 
 function escapeHtml(value) {
   return String(value)
@@ -139,158 +194,327 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 }
 
-function showErrors(errors) {
-  // 输入无效：清除旧结果
-  $("results").innerHTML = "";
-  const box = $("errors");
-  const items = errors.map((e) => {
-    const parts = [];
-    parts.push(e.sheet === "old" ? "【旧规则集】" : e.sheet === "new" ? "【新规则集】" : "");
-    if (e.ruleIndex != null) parts.push(`第 ${e.ruleIndex} 条规则`);
-    if (e.field) parts.push(`字段 ${e.field}`);
-    if (e.line != null) parts.push(`JSON 第 ${e.line} 行第 ${e.col} 列`);
-    const loc = parts.length ? `<span class="loc">${escapeHtml(parts.join(" · "))}：</span>` : "";
-    return `<li>${loc}${escapeHtml(e.message)}</li>`;
-  }).join("");
-  box.innerHTML = `<h3>输入无效，未执行分析（旧结果已清除），共 ${errors.length} 处问题：</h3><ul>${items}</ul>`;
+function toast(message) {
+  const box = $("toast");
+  box.textContent = message;
   box.classList.add("show");
-  box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => box.classList.remove("show"), 2200);
 }
 
-function clearErrors() {
-  const box = $("errors");
-  box.classList.remove("show");
-  box.innerHTML = "";
+function parseQid(text) {
+  const raw = String(text).trim();
+  if (!raw) return null;
+  let value;
+  if (/^0x[0-9a-fA-F]+$/.test(raw)) value = parseInt(raw, 16);
+  else if (/^[0-9]+$/.test(raw)) value = parseInt(raw, 10);
+  else return NaN;
+  if (!Number.isInteger(value) || value < 0 || value > QID_MAX) return NaN;
+  return value;
 }
 
-function formatBigInt(s) {
-  // 后端以字符串传递超大整数，按千分位展示
-  return String(s).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-}
-
-function ipIntervalHtml(iv) {
-  const cidr = iv.cidr ? ` <span class="hint">（即 ${escapeHtml(iv.cidr)}）</span>` : "";
-  return `<code>${escapeHtml(iv.start)} – ${escapeHtml(iv.end)}</code>${cidr}`;
-}
-
-function verdictHtml(v, label) {
-  const actionBadge = v.action === "allow"
-    ? '<span class="badge allow">ALLOW 放行</span>'
-    : '<span class="badge deny">DENY 阻断</span>';
-  const defaultBadge = v.defaultDeny ? ' <span class="badge default">默认拒绝</span>' : "";
-  const ruleLine = v.matched
-    ? `命中规则 #${escapeHtml(v.ruleOrder)}，id=<code>${escapeHtml(v.ruleId)}</code>`
-    : `未命中任何规则 → <code>${escapeHtml(v.ruleId)}</code>`;
-  return `
-    <div class="verdict">
-      <div class="title">${label}</div>
-      <div class="rule">${ruleLine}${defaultBadge}</div>
-      <div style="margin-top:4px">${actionBadge}</div>
-    </div>`;
-}
-
-function blockHtml(b, index) {
-  const p = b.representativePacket;
-  const title = b.changeType === "newly-allowed"
-    ? `新增放行区域 #${index + 1}` : `新增阻断区域 #${index + 1}`;
-  return `
-  <div class="block ${b.changeType}">
-    <h4>${title}</h4>
-    <table class="kv">
-      <tr><td>源地址区间</td><td>${ipIntervalHtml(b.source)}</td></tr>
-      <tr><td>目的地址区间</td><td>${ipIntervalHtml(b.destination)}</td></tr>
-      <tr><td>目的端口区间</td><td><code>${escapeHtml(b.port.label)}</code>
-        <span class="hint">（${formatBigInt(b.port.portCount)} 个端口）</span></td></tr>
-      <tr><td>覆盖报文数</td><td><span class="mono">${formatBigInt(b.packetCount)}</span>
-        <span class="hint">（源地址数 × 目的地址数 × 端口数）</span></td></tr>
-      <tr><td>示例报文</td><td>
-        <strong>TCP</strong> &nbsp; <code>${escapeHtml(p.sourceIp)}</code> →
-        <code>${escapeHtml(p.destinationIp)}</code> : <code>${escapeHtml(p.destinationPort)}</code>
-        <div class="hint">取各区间最小端点；该区域内任意报文的命中规则均与此相同。</div>
-      </td></tr>
-    </table>
-    <div class="verdict-row">
-      ${verdictHtml(b.oldVerdict, "变更前（旧）")}
-      ${verdictHtml(b.newVerdict, "变更后（新）")}
-    </div>
-  </div>`;
-}
-
-function renderResults(data) {
-  clearErrors();
-  const r = data.result;
-  const s = r.summary;
-  const bar = `
-    <div class="summary-bar">
-      <span>旧规则 <b>${s.oldRuleCount}</b> 条</span>
-      <span>新规则 <b>${s.newRuleCount}</b> 条</span>
-      <span>新增放行区域 <b>${s.newlyAllowedBlockCount}</b> 块</span>
-      <span>新增阻断区域 <b>${s.newlyDeniedBlockCount}</b> 块</span>
-      <span>变更区域合计 <b>${s.totalChangedBlockCount}</b> 块（互不重叠，恰好覆盖全部差异）</span>
-    </div>`;
-
-  const allowed = r.newlyAllowed.length
-    ? `<div class="blocks">${r.newlyAllowed.map((b, i) => blockHtml(b, i)).join("")}</div>`
-    : `<div class="empty">无新增放行区域（没有任何流量由阻断变为放行）。</div>`;
-  const denied = r.newlyDenied.length
-    ? `<div class="blocks">${r.newlyDenied.map((b, i) => blockHtml(b, i)).join("")}</div>`
-    : `<div class="empty">无新增阻断区域（没有任何流量由放行变为阻断）。</div>`;
-
-  $("results").innerHTML = `
-    ${bar}
-    <div class="section-head"><h2>新增放行</h2><span class="badge allow">ALLOW</span>
-      <span class="hint">旧规则阻断（含默认拒绝）→ 新规则放行的全部区域</span></div>
-    ${allowed}
-    <div class="section-head"><h2>新增阻断</h2><span class="badge deny">DENY</span>
-      <span class="hint">旧规则放行 → 新规则阻断（含默认拒绝）的全部区域</span></div>
-    ${denied}`;
-}
-
-async function analyze() {
-  const oldText = $("old-rules").value;
-  const newText = $("new-rules").value;
-  const btn = $("btn-analyze");
-  btn.disabled = true;
-  try {
-    const resp = await fetch("/api/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ old: oldText, new: newText }),
+function addRow(name = "", qid = 4660) {
+  const tr = document.createElement("tr");
+  tr.dataset.rowId = String(nextRowSeq++);
+  tr.innerHTML = `
+    <td class="row-index"></td>
+    <td class="domain-cell"><input type="text" class="qname" spellcheck="false"
+        placeholder="例如 www.example.test"></td>
+    <td class="id-cell"><input type="text" class="qid" spellcheck="false"
+        placeholder="0-65535 或 0x1234"></td>
+    <td class="op-cell"><button class="ghost danger btn-remove" type="button">删除</button></td>`;
+  tr.querySelector(".qname").value = name;
+  tr.querySelector(".qid").value = String(qid);
+  tr.querySelector(".btn-remove").addEventListener("click", () => {
+    tr.remove();
+    renumberRows();
+  });
+  tr.querySelectorAll("input").forEach((input) => {
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") runQueries();
     });
-    const data = await resp.json();
-    if (!resp.ok || !data.ok) {
-      showErrors(data.errors || [{ sheet: null, message: "未知错误" }]);
+  });
+  $("rows").appendChild(tr);
+  renumberRows();
+  return tr;
+}
+
+function renumberRows() {
+  [...$("rows").children].forEach((tr, index) => {
+    tr.querySelector(".row-index").textContent = String(index + 1);
+  });
+}
+
+function resetRows(items) {
+  $("rows").innerHTML = "";
+  nextRowSeq = 1;
+  items.forEach(([name, qid]) => addRow(name, qid));
+  clearResults();
+}
+
+function collectRows() {
+  const rows = [];
+  let invalid = null;
+  [...$("rows").children].forEach((tr, index) => {
+    const name = tr.querySelector(".qname").value.trim();
+    const qidRaw = tr.querySelector(".qid").value.trim();
+    const qid = parseQid(qidRaw);
+    if (!name) {
+      invalid = invalid || `第 ${index + 1} 行缺少域名`;
       return;
     }
-    renderResults(data);
-  } catch (err) {
-    showErrors([{ sheet: null, message: `请求失败：${err}` }]);
-  } finally {
-    btn.disabled = false;
-  }
+    if (qid === null || Number.isNaN(qid)) {
+      invalid = invalid || `第 ${index + 1} 行查询 ID 必须是 0-65535 的整数（可写 0x 前缀）`;
+      return;
+    }
+    rows.push({ tr, name, qid, index });
+  });
+  return { rows, invalid };
 }
 
-async function loadExample() {
-  try {
-    const resp = await fetch("/api/example");
-    const data = await resp.json();
-    $("old-rules").value = JSON.stringify(data.old, null, 2);
-    $("new-rules").value = JSON.stringify(data.new, null, 2);
-    clearErrors();
-    $("results").innerHTML = "";
-  } catch (err) {
-    showErrors([{ sheet: null, message: `示例加载失败：${err}` }]);
-  }
-}
-
-$("btn-analyze").addEventListener("click", analyze);
-$("btn-example").addEventListener("click", loadExample);
-$("btn-clear").addEventListener("click", () => {
-  $("old-rules").value = "";
-  $("new-rules").value = "";
-  clearErrors();
+function clearResults() {
   $("results").innerHTML = "";
+  $("summary").classList.remove("show");
+  $("summary").innerHTML = "";
+}
+
+function placeholderCard(row, total) {
+  const card = document.createElement("div");
+  card.className = "result placeholder";
+  card.id = `result-${row.tr.dataset.rowId}`;
+  card.innerHTML = `
+    <div class="result-head">
+      <div>
+        <div class="result-title">${escapeHtml(row.name)}</div>
+        <div class="result-sub">查询 ID <span class="mono">0x${row.qid.toString(16).padStart(4, "0")}</span> (${row.qid})</div>
+      </div>
+      <span class="badge">等待…</span>
+    </div>
+    <div class="no-answer">正在通过真实 UDP 查询转发器…（共 ${total} 个并发请求）</div>`;
+  $("results").appendChild(card);
+  return card;
+}
+
+function flagsHtml(flags) {
+  if (!flags) return "";
+  const names = [["qr", "QR"], ["aa", "AA"], ["tc", "TC"], ["rd", "RD"], ["ra", "RA"]];
+  return `<div class="flags">${names.map(([key, label]) =>
+    `<span class="flag ${flags[key] ? "on" : ""}">${label}=${flags[key] ? 1 : 0}</span>`).join("")}</div>`;
+}
+
+function answerHtml(response) {
+  if (!response) return "";
+  if (!response.answers || response.answers.length === 0) {
+    return `<div class="no-answer">无答案（RCODE=${escapeHtml(response.rcodeName || response.rcode)}）</div>`;
+  }
+  return `<div class="answers">${response.answers.map((answer) => `
+    <div class="answer">
+      <span class="atype">${escapeHtml(answer.typeName)}</span>
+      <span class="adata">${escapeHtml(answer.data)}</span>
+      <span class="attl">TTL ${escapeHtml(answer.ttl)}s</span>
+      <span class="aname">${escapeHtml(answer.name)}</span>
+    </div>`).join("")}</div>`;
+}
+
+function renderResult(row, data, httpMs) {
+  const card = document.getElementById(`result-${row.tr.dataset.rowId}`);
+  if (!card) return;
+  const response = data.response || null;
+  let status = "ERROR";
+  let label = "ERROR";
+  if (data.ok) {
+    if (response && response.rcodeName === "SERVFAIL") {
+      status = "servfail"; label = "SERVFAIL";
+    } else {
+      status = "ok"; label = "OK";
+    }
+  } else if (data.timedOut) {
+    status = "timeout"; label = "TIMEOUT";
+  }
+  const rcode = response
+    ? `${escapeHtml(response.rcodeName)} (${escapeHtml(response.rcode)})`
+    : "—";
+  const returnedId = response
+    ? `0x${Number(response.id).toString(16).padStart(4, "0")} (${response.id})`
+    : "—";
+  card.className = `result ${status}`;
+  card.innerHTML = `
+    <div class="result-head">
+      <div>
+        <div class="result-title">${escapeHtml(row.name)}</div>
+        <div class="result-sub">客户端 ID <span class="mono">0x${row.qid.toString(16).padStart(4, "0")}</span> (${row.qid})
+          · 应答 ID <span class="mono">${returnedId}</span></div>
+      </div>
+      <span class="badge ${status}">${label}</span>
+    </div>
+    <div class="metrics">
+      <span>DNS 耗时 <b>${Number(data.elapsedMs ?? 0).toFixed(1)} ms</b></span>
+      <span>HTTP 往返 <b>${Number(httpMs).toFixed(1)} ms</b></span>
+      <span>RCODE <b>${rcode}</b></span>
+      <span>答案数 <b>${response ? response.answers.length : 0}</b></span>
+    </div>
+    ${data.error ? `<div class="err-text">${escapeHtml(data.error)}</div>` : ""}
+    ${answerHtml(response)}
+    ${flagsHtml(response && response.flags)}
+    ${response ? `<details><summary>原始应答 JSON</summary><pre>${escapeHtml(JSON.stringify(response, null, 2))}</pre></details>` : ""}
+    ${data.query ? `<details><summary>查询 JSON</summary><pre>${escapeHtml(JSON.stringify(data.query, null, 2))}</pre></details>` : ""}`;
+}
+
+async function runQueries() {
+  const { rows, invalid } = collectRows();
+  if (invalid) { toast(invalid); return; }
+  if (rows.length === 0) { toast("请先添加至少一行查询"); return; }
+
+  clearResults();
+  rows.forEach((row) => placeholderCard(row, rows.length));
+  const startedAll = performance.now();
+  const button = $("btn-run");
+  button.disabled = true;
+
+  const jobs = rows.map(async (row) => {
+    const started = performance.now();
+    try {
+      const resp = await fetch("/api/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: row.name, qid: row.qid }),
+      });
+      let data;
+      try {
+        data = await resp.json();
+      } catch (err) {
+        data = { ok: false, timedOut: false, error: `HTTP ${resp.status} 响应不是 JSON` };
+      }
+      if (!resp.ok && data.detail) {
+        data = { ok: false, timedOut: false, error: JSON.stringify(data.detail) };
+      }
+      renderResult(row, data, performance.now() - started);
+      return data;
+    } catch (err) {
+      const data = { ok: false, timedOut: false, error: `请求失败：${err}` };
+      renderResult(row, data, performance.now() - started);
+      return data;
+    }
+  });
+
+  const results = await Promise.all(jobs);
+  button.disabled = false;
+  const totalMs = performance.now() - startedAll;
+  const okCount = results.filter((data) => data.ok && !(data.response && data.response.rcode === 2)).length;
+  const servfailCount = results.filter((data) => data.ok && data.response && data.response.rcode === 2).length;
+  const timeoutCount = results.filter((data) => !data.ok && data.timedOut).length;
+  const errorCount = results.length - okCount - servfailCount - timeoutCount;
+  const slowest = Math.max(...results.map((data) => Number(data.elapsedMs ?? 0)), 0);
+
+  $("summary").innerHTML = `
+    <span>并发请求 <b>${results.length}</b> 个</span>
+    <span>成功 <b>${okCount}</b></span>
+    <span>SERVFAIL <b>${servfailCount}</b></span>
+    <span>超时 <b>${timeoutCount}</b></span>
+    <span>其它错误 <b>${errorCount}</b></span>
+    <span>整体耗时 <b>${totalMs.toFixed(1)} ms</b></span>
+    <span>最慢 DNS 耗时 <b>${slowest.toFixed(1)} ms</b></span>`;
+  $("summary").classList.add("show");
+}
+
+function applyPreset(kind) {
+  const sameId = 4660;
+  if (kind === "same-id") {
+    resetRows([
+      ["sameid-1.example.test", sameId],
+      ["sameid-2.example.test", sameId],
+      ["sameid-3.example.test", sameId],
+      ["sameid-4.example.test", sameId],
+    ]);
+    toast("已载入：4 个不同域名，全部使用相同查询 ID 0x1234");
+  } else if (kind === "ooo") {
+    resetRows([
+      ["ooo-1.example.test", 0x2001],
+      ["ooo-2.example.test", 0x2002],
+      ["ooo-3.example.test", 0x2003],
+      ["ooo-4.example.test", 0x2004],
+    ]);
+    toast("已载入：上游会把这些并发查询按倒序回复");
+  } else if (kind === "wrongq") {
+    resetRows([
+      ["wrongq-1.example.test", 0x3001],
+      ["wrongq-2.example.test", 0x3002],
+      ["wrongq-3.example.test", 0x3003],
+    ]);
+    toast("已载入：上游先发问题不匹配的伪造应答，再发正确应答");
+  } else if (kind === "wrongsrc") {
+    resetRows([
+      ["wrongsrc-1.example.test", 0x3101],
+      ["wrongsrc-2.example.test", 0x3102],
+      ["wrongsrc-3.example.test", 0x3103],
+    ]);
+    toast("已载入：上游先从其它源端口发伪造应答，再发正确应答");
+  } else if (kind === "delay") {
+    resetRows([
+      ["delay-1.example.test", 0x4001],
+      ["delay-2.example.test", 0x4002],
+    ]);
+    toast("已载入：上游会延迟应答");
+  } else if (kind === "drop") {
+    resetRows([
+      ["drop-1.example.test", 0x5001],
+      ["drop-2.example.test", 0x5002],
+    ]);
+    toast("已载入：上游不回复，约 2 秒后应收到 SERVFAIL");
+  } else if (kind === "cache") {
+    resetRows([
+      ["ttl5-cache.example.test", 0x6001],
+      ["ttl5-cache.example.test", 0x6002],
+    ]);
+    toast("先查询一次，再点一次“并发查询”；第二次应命中缓存、ID 各自恢复、TTL 扣减");
+  } else {
+    resetRows([
+      ["www.example.test", sameId],
+      ["api.example.test", sameId],
+      ["mail.example.test", 0x5678],
+    ]);
+    toast("已载入普通查询");
+  }
+}
+
+async function loadConfig() {
+  try {
+    const resp = await fetch("/api/config");
+    const cfg = await resp.json();
+    $("cfg-forwarder").textContent = `${cfg.forwarder.host}:${cfg.forwarder.port}`;
+    $("cfg-upstream").textContent = cfg.upstreamLabel || "由启动配置固定";
+    $("cfg-timeout").textContent = `${Number(cfg.queryTimeoutSeconds).toFixed(1)}s（转发器上游 2s）`;
+    if (cfg.configError) toast(`配置错误：${cfg.configError}`);
+  } catch (err) {
+    $("cfg-forwarder").textContent = "配置不可用";
+  }
+}
+
+async function checkReady() {
+  const button = $("btn-ready");
+  button.disabled = true;
+  try {
+    const resp = await fetch("/api/ready");
+    const data = await resp.json();
+    if (resp.ok) toast(`链路正常：${Number(data.elapsedMs).toFixed(1)} ms`);
+    else toast(`链路异常：${data.error || resp.status}`);
+  } catch (err) {
+    toast(`链路检查失败：${err}`);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+$("btn-run").addEventListener("click", runQueries);
+$("btn-add").addEventListener("click", () => addRow("", 4660));
+$("btn-clear").addEventListener("click", clearResults);
+$("btn-ready").addEventListener("click", checkReady);
+document.querySelectorAll("[data-preset]").forEach((button) => {
+  button.addEventListener("click", () => applyPreset(button.dataset.preset));
 });
+
+applyPreset("normal");
+loadConfig();
 </script>
 </body>
 </html>
