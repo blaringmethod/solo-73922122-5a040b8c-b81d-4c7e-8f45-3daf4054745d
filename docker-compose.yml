@@ -1,0 +1,15 @@
+services:
+  firewall-rule-diff:
+    build: .
+    image: firewall-rule-diff:1.0.0
+    container_name: firewall-rule-diff
+    ports:
+      # 默认仅绑定宿主机回环地址；如需对局域网开放，改为 "8000:8000"
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health').status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

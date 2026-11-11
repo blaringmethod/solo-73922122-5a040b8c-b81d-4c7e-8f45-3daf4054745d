@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>防火墙规则变更差分台</title>
+<style>
+  :root {
+    --bg: #0f172a; --panel: #1e293b; --panel2: #273449; --line: #334155;
+    --text: #e2e8f0; --muted: #94a3b8; --accent: #38bdf8;
+    --allow: #16a34a; --allow-bg: #052e16; --deny: #dc2626; --deny-bg: #2a0a0a;
+    --warn: #f59e0b; --err-bg: #3f1414; --err-line: #b91c1c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  header { padding: 20px 28px 12px; border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0 0 6px; font-size: 20px; }
+  header p { margin: 0; color: var(--muted); font-size: 13px; }
+  main { padding: 20px 28px 60px; max-width: 1500px; margin: 0 auto; }
+  .toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  button {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 13px;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: #0369a1; border-color: #0ea5e9; color: #fff; }
+  button.primary:hover { background: #0284c7; color: #fff; }
+  .editors { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 1000px) { .editors { grid-template-columns: 1fr; } }
+  .editor-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .editor-card h2 { margin: 0; padding: 10px 14px; font-size: 14px; background: var(--panel2); border-bottom: 1px solid var(--line); }
+  textarea {
+    width: 100%; min-height: 320px; resize: vertical; border: 0; outline: none;
+    background: #0b1220; color: #dbeafe; font: 12px/1.55 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    padding: 12px 14px;
+  }
+  .schema-help {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 16px; margin: 16px 0; color: var(--muted); font-size: 12.5px;
+  }
+  .schema-help code { color: var(--accent); }
+  .schema-help pre {
+    background: #0b1220; border: 1px solid var(--line); border-radius: 6px;
+    padding: 10px 12px; overflow-x: auto; color: #cbd5e1; margin: 8px 0 0;
+  }
+  #errors { display: none; margin: 16px 0; border: 1px solid var(--err-line); background: var(--err-bg); border-radius: 10px; padding: 12px 16px; }
+  #errors.show { display: block; }
+  #errors h3 { margin: 0 0 8px; color: #fca5a5; font-size: 14px; }
+  #errors ul { margin: 0; padding-left: 18px; }
+  #errors li { margin: 4px 0; }
+  .loc { color: var(--warn); font-weight: 600; }
+  #results { margin-top: 22px; }
+  .section-head { display: flex; align-items: baseline; gap: 12px; margin: 22px 0 10px; }
+  .section-head h2 { margin: 0; font-size: 16px; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+  .badge.allow { background: var(--allow-bg); color: #4ade80; border: 1px solid var(--allow); }
+  .badge.deny { background: var(--deny-bg); color: #f87171; border: 1px solid var(--deny); }
+  .badge.default { background: #1f2937; color: #fbbf24; border: 1px solid var(--warn); }
+  .blocks { display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); gap: 14px; }
+  .block {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; border-left-width: 4px;
+  }
+  .block.newly-allowed { border-left-color: var(--allow); }
+  .block.newly-denied { border-left-color: var(--deny); }
+  .block h4 { margin: 0 0 10px; font-size: 13px; color: var(--muted); font-weight: 600; }
+  table.kv { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.kv td { padding: 4px 6px; vertical-align: top; }
+  table.kv td:first-child { color: var(--muted); width: 96px; white-space: nowrap; }
+  table.kv td code { color: #bae6fd; }
+  .verdict-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+  .verdict { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel2); }
+  .verdict .title { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .verdict .rule { font-weight: 700; }
+  .arrow { text-align: center; color: var(--muted); font-size: 18px; margin-top: 6px; }
+  .empty { color: var(--muted); font-style: italic; padding: 8px 2px; }
+  .summary-bar { display: flex; gap: 18px; flex-wrap: wrap; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 18px; margin-bottom: 8px; font-size: 13px; }
+  .summary-bar b { color: var(--accent); }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+</style>
+</head>
+<body>
+<header>
+  <h1>防火墙规则变更差分台（IPv4 / TCP，首条匹配，默认拒绝）</h1>
+  <p>粘贴旧、新两份有序 JSON 规则（各 ≤ 20 条），系统用边界切分精确枚举整个流量空间，输出全部且互不重叠的新增放行 / 新增阻断区域，不做抽样。</p>
+</header>
+
+<main>
+  <div class="toolbar">
+    <button class="primary" id="btn-analyze" type="button">分析变更</button>
+    <button id="btn-example" type="button">载入重叠规则示例</button>
+    <button id="btn-clear" type="button">清空输入与结果</button>
+  </div>
+
+  <div class="editors">
+    <div class="editor-card">
+      <h2>旧规则集（变更前）</h2>
+      <textarea id="old-rules" spellcheck="false" placeholder="在此粘贴旧 JSON 规则数组…"></textarea>
+    </div>
+    <div class="editor-card">
+      <h2>新规则集（变更后）</h2>
+      <textarea id="new-rules" spellcheck="false" placeholder="在此粘贴新 JSON 规则数组…"></textarea>
+    </div>
+  </div>
+
+  <div class="schema-help">
+    <strong>规则格式</strong>：数组，每条规则为对象，字段
+    <code>id</code>（整数或非空字符串，同一份内唯一）、
+    <code>source</code> 与 <code>destination</code>（严格 IPv4 CIDR，主机位须为 0，如 <code>10.0.0.0/24</code>，全网用 <code>0.0.0.0/0</code>，单机用 <code>/32</code>）、
+    <code>portRange</code>（目的端口闭区间 <code>[下界, 上界]</code>，0-65535 整数）、
+    <code>action</code>（小写 <code>allow</code> 或 <code>deny</code>）。匹配按数组顺序，首条命中生效；全部未命中即默认拒绝。
+    <pre>[
+  {
+    "id": 1,
+    "source": "10.0.0.0/8",
+    "destination": "172.16.0.0/12",
+    "portRange": [80, 443],
+    "action": "allow"
+  }
+]</pre>
+  </div>
+
+  <div id="errors" role="alert"></div>
+  <div id="results"></div>
+</main>
+
+<script>
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+
+function showErrors(errors) {
+  // 输入无效：清除旧结果
+  $("results").innerHTML = "";
+  const box = $("errors");
+  const items = errors.map((e) => {
+    const parts = [];
+    parts.push(e.sheet === "old" ? "【旧规则集】" : e.sheet === "new" ? "【新规则集】" : "");
+    if (e.ruleIndex != null) parts.push(`第 ${e.ruleIndex} 条规则`);
+    if (e.field) parts.push(`字段 ${e.field}`);
+    if (e.line != null) parts.push(`JSON 第 ${e.line} 行第 ${e.col} 列`);
+    const loc = parts.length ? `<span class="loc">${escapeHtml(parts.join(" · "))}：</span>` : "";
+    return `<li>${loc}${escapeHtml(e.message)}</li>`;
+  }).join("");
+  box.innerHTML = `<h3>输入无效，未执行分析（旧结果已清除），共 ${errors.length} 处问题：</h3><ul>${items}</ul>`;
+  box.classList.add("show");
+  box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function clearErrors() {
+  const box = $("errors");
+  box.classList.remove("show");
+  box.innerHTML = "";
+}
+
+function formatBigInt(s) {
+  // 后端以字符串传递超大整数，按千分位展示
+  return String(s).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+function ipIntervalHtml(iv) {
+  const cidr = iv.cidr ? ` <span class="hint">（即 ${escapeHtml(iv.cidr)}）</span>` : "";
+  return `<code>${escapeHtml(iv.start)} – ${escapeHtml(iv.end)}</code>${cidr}`;
+}
+
+function verdictHtml(v, label) {
+  const actionBadge = v.action === "allow"
+    ? '<span class="badge allow">ALLOW 放行</span>'
+    : '<span class="badge deny">DENY 阻断</span>';
+  const defaultBadge = v.defaultDeny ? ' <span class="badge default">默认拒绝</span>' : "";
+  const ruleLine = v.matched
+    ? `命中规则 #${escapeHtml(v.ruleOrder)}，id=<code>${escapeHtml(v.ruleId)}</code>`
+    : `未命中任何规则 → <code>${escapeHtml(v.ruleId)}</code>`;
+  return `
+    <div class="verdict">
+      <div class="title">${label}</div>
+      <div class="rule">${ruleLine}${defaultBadge}</div>
+      <div style="margin-top:4px">${actionBadge}</div>
+    </div>`;
+}
+
+function blockHtml(b, index) {
+  const p = b.representativePacket;
+  const title = b.changeType === "newly-allowed"
+    ? `新增放行区域 #${index + 1}` : `新增阻断区域 #${index + 1}`;
+  return `
+  <div class="block ${b.changeType}">
+    <h4>${title}</h4>
+    <table class="kv">
+      <tr><td>源地址区间</td><td>${ipIntervalHtml(b.source)}</td></tr>
+      <tr><td>目的地址区间</td><td>${ipIntervalHtml(b.destination)}</td></tr>
+      <tr><td>目的端口区间</td><td><code>${escapeHtml(b.port.label)}</code>
+        <span class="hint">（${formatBigInt(b.port.portCount)} 个端口）</span></td></tr>
+      <tr><td>覆盖报文数</td><td><span class="mono">${formatBigInt(b.packetCount)}</span>
+        <span class="hint">（源地址数 × 目的地址数 × 端口数）</span></td></tr>
+      <tr><td>示例报文</td><td>
+        <strong>TCP</strong> &nbsp; <code>${escapeHtml(p.sourceIp)}</code> →
+        <code>${escapeHtml(p.destinationIp)}</code> : <code>${escapeHtml(p.destinationPort)}</code>
+        <div class="hint">取各区间最小端点；该区域内任意报文的命中规则均与此相同。</div>
+      </td></tr>
+    </table>
+    <div class="verdict-row">
+      ${verdictHtml(b.oldVerdict, "变更前（旧）")}
+      ${verdictHtml(b.newVerdict, "变更后（新）")}
+    </div>
+  </div>`;
+}
+
+function renderResults(data) {
+  clearErrors();
+  const r = data.result;
+  const s = r.summary;
+  const bar = `
+    <div class="summary-bar">
+      <span>旧规则 <b>${s.oldRuleCount}</b> 条</span>
+      <span>新规则 <b>${s.newRuleCount}</b> 条</span>
+      <span>新增放行区域 <b>${s.newlyAllowedBlockCount}</b> 块</span>
+      <span>新增阻断区域 <b>${s.newlyDeniedBlockCount}</b> 块</span>
+      <span>变更区域合计 <b>${s.totalChangedBlockCount}</b> 块（互不重叠，恰好覆盖全部差异）</span>
+    </div>`;
+
+  const allowed = r.newlyAllowed.length
+    ? `<div class="blocks">${r.newlyAllowed.map((b, i) => blockHtml(b, i)).join("")}</div>`
+    : `<div class="empty">无新增放行区域（没有任何流量由阻断变为放行）。</div>`;
+  const denied = r.newlyDenied.length
+    ? `<div class="blocks">${r.newlyDenied.map((b, i) => blockHtml(b, i)).join("")}</div>`
+    : `<div class="empty">无新增阻断区域（没有任何流量由放行变为阻断）。</div>`;
+
+  $("results").innerHTML = `
+    ${bar}
+    <div class="section-head"><h2>新增放行</h2><span class="badge allow">ALLOW</span>
+      <span class="hint">旧规则阻断（含默认拒绝）→ 新规则放行的全部区域</span></div>
+    ${allowed}
+    <div class="section-head"><h2>新增阻断</h2><span class="badge deny">DENY</span>
+      <span class="hint">旧规则放行 → 新规则阻断（含默认拒绝）的全部区域</span></div>
+    ${denied}`;
+}
+
+async function analyze() {
+  const oldText = $("old-rules").value;
+  const newText = $("new-rules").value;
+  const btn = $("btn-analyze");
+  btn.disabled = true;
+  try {
+    const resp = await fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ old: oldText, new: newText }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      showErrors(data.errors || [{ sheet: null, message: "未知错误" }]);
+      return;
+    }
+    renderResults(data);
+  } catch (err) {
+    showErrors([{ sheet: null, message: `请求失败：${err}` }]);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadExample() {
+  try {
+    const resp = await fetch("/api/example");
+    const data = await resp.json();
+    $("old-rules").value = JSON.stringify(data.old, null, 2);
+    $("new-rules").value = JSON.stringify(data.new, null, 2);
+    clearErrors();
+    $("results").innerHTML = "";
+  } catch (err) {
+    showErrors([{ sheet: null, message: `示例加载失败：${err}` }]);
+  }
+}
+
+$("btn-analyze").addEventListener("click", analyze);
+$("btn-example").addEventListener("click", loadExample);
+$("btn-clear").addEventListener("click", () => {
+  $("old-rules").value = "";
+  $("new-rules").value = "";
+  clearErrors();
+  $("results").innerHTML = "";
+});
+</script>
+</body>
+</html>
